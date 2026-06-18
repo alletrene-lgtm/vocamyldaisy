@@ -1,0 +1,496 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DaisyPlayer Accessible - Bibliothèque</title>
+  <link rel="manifest" href="manifest.json">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <style>
+    body {
+      background-color: #121212;
+      color: #FFFFFF;
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 20px;
+      font-size: 1.3rem;
+    }
+    button, label.button-label {
+      display: block;
+      text-align: center;
+      background-color: #FFCC00;
+      color: #000000;
+      border: none;
+      padding: 15px 25px;
+      font-size: 1.4rem;
+      font-weight: bold;
+      margin: 10px 0;
+      width: 100%;
+      border-radius: 8px;
+      cursor: pointer;
+      box-sizing: border-box;
+    }
+    button:focus, label.button-label:focus-within {
+      outline: 4px solid #00E6FF;
+    }
+    input[type="file"] {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      border: 0;
+    }
+    .status-area {
+      background-color: #1E1E1E;
+      padding: 15px;
+      border-left: 5px solid #FFCC00;
+      margin-bottom: 20px;
+    }
+    /* Ajout visuel pour montrer que le focus est sur le statut */
+    .status-area:focus {
+      outline: 4px solid #00E6FF; 
+    }
+    .player-controls {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-top: 20px;
+    }
+    ul {
+      list-style-type: none;
+      padding: 0;
+    }
+    li {
+      margin: 15px 0;
+      padding: 10px;
+      background-color: #1E1E1E;
+      border-radius: 8px;
+    }
+    .book-item {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .chapter-btn {
+      background-color: #2A2A2A;
+      color: #FFFFFF;
+      border: 2px solid #FFFFFF;
+      text-align: left;
+    }
+    .chapter-btn:focus {
+      background-color: #FFCC00;
+      color: #000000;
+    }
+    .delete-btn {
+      background-color: #FF3333;
+      color: #FFFFFF;
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <h1>DaisyPlayer</h1>
+  </header>
+
+  <main>
+    <div class="status-area" role="status" aria-live="polite" id="status" tabindex="-1">
+      Connexion à la bibliothèque en cours...
+    </div>
+
+    <section aria-label="Importer un nouveau livre">
+      <label class="button-label">
+        Ajouter un livre à la bibliothèque (ZIP)
+        <input type="file" id="fileInput" accept=".zip" onchange="ajouterLivreALaBibliotheque(event)">
+      </label>
+    </section>
+
+    <audio id="audioPlayer" style="display:none;"></audio>
+
+    <section aria-label="Commandes de lecture" style="margin-top: 20px;">
+      <h2>Commandes</h2>
+      <div class="player-controls">
+        <button onclick="piloterAudio('play')">Lire</button>
+        <button onclick="piloterAudio('pause')">Pause</button>
+        <button onclick="piloterAudio('reculer')">Reculer 15s</button>
+        <button onclick="piloterAudio('avancer')">Avancer 15s</button>
+      </div>
+    </section>
+
+    <section aria-label="Ma Bibliothèque" style="margin-top: 30px;">
+      <h2>Ma Bibliothèque</h2>
+      <ul id="listeLivres">
+        </ul>
+    </section>
+
+    <section aria-label="Table des matières du livre en cours" style="margin-top: 30px;">
+      <h2 id="titreLivreEnCours">Aucun livre sélectionné</h2>
+      <ul id="tableMatieres">
+        </ul>
+    </section>
+  </main>
+
+  <script>
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register("./sw.js").catch((err) => console.error(err));
+    }
+
+    const statusZone = document.getElementById("status");
+    const listeLivres = document.getElementById("listeLivres");
+    const listeChapitres = document.getElementById("tableMatieres");
+    const titreLivreEnCours = document.getElementById("titreLivreEnCours");
+    const audioPlayer = document.getElementById("audioPlayer");
+    
+    let db = null;
+    let currentZipBlob = null;
+    let zipInstance = null;
+
+    const request = indexedDB.open("DaisyLibraryDB", 1);
+
+    request.onupgradeneeded = (event) => {
+      db = event.target.result;
+      if (!db.objectStoreNames.contains("books")) {
+        db.createObjectStore("books", { keyPath: "name" });
+      }
+    };
+
+    request.onsuccess = (event) => {
+      db = event.target.result;
+      statusZone.textContent = "Bibliothèque chargée. Prête.";
+      rafraichirBibliotheque();
+    };
+
+    request.onerror = () => {
+      statusZone.textContent = "Erreur lors de l'accès à la bibliothèque locale.";
+    };
+
+    async function rafraichirBibliotheque() {
+      listeLivres.innerHTML = "";
+      const transaction = db.transaction("books", "readonly");
+      const store = transaction.objectStore("books");
+      const requestAll = store.getAll();
+
+      requestAll.onsuccess = () => {
+        const livres = requestAll.result;
+        if (livres.length === 0) {
+          listeLivres.innerHTML = "<li>Aucun livre dans votre bibliothèque.</li>";
+          return;
+        }
+
+        livres.forEach((livre) => {
+          const li = document.createElement("li");
+          li.className = "book-item";
+          
+          const titleSpan = document.createElement("span");
+          titleSpan.textContent = livre.name;
+          titleSpan.style.fontWeight = "bold";
+
+          const openBtn = document.createElement("button");
+          openBtn.textContent = `Ouvrir ${livre.name}`;
+          openBtn.onclick = () => chargerLivre(livre.blob, livre.name);
+
+          const deleteBtn = document.createElement("button");
+          deleteBtn.className = "delete-btn";
+          deleteBtn.textContent = `Supprimer ${livre.name}`;
+          deleteBtn.onclick = () => supprimerLivre(livre.name);
+
+          li.appendChild(titleSpan);
+          li.appendChild(openBtn);
+          li.appendChild(deleteBtn);
+          listeLivres.appendChild(li);
+        });
+      };
+    }
+
+    async function ajouterLivreALaBibliotheque(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      statusZone.textContent = `Ajout de ${file.name} à la bibliothèque...`;
+
+      const transaction = db.transaction("books", "readwrite");
+      const store = transaction.objectStore("books");
+      
+      const nouveauLivre = {
+        name: file.name.replace(".zip", ""),
+        blob: file
+      };
+
+      const addRequest = store.put(nouveauLivre);
+
+      addRequest.onsuccess = () => {
+        statusZone.textContent = `${nouveauLivre.name} a été ajouté avec succès à votre bibliothèque.`;
+        rafraichirBibliotheque();
+      };
+
+      addRequest.onerror = () => {
+        statusZone.textContent = "Impossible de sauvegarder le livre.";
+      };
+    }
+
+    function supprimerLivre(nom) {
+      if (confirm(`Voulez-vous vraiment supprimer le livre ${nom} ?`)) {
+        const transaction = db.transaction("books", "readwrite");
+        const store = transaction.objectStore("books");
+        store.delete(nom);
+
+        transaction.oncomplete = () => {
+          statusZone.textContent = `Le livre ${nom} a été supprimé.`;
+          if (titreLivreEnCours.textContent === nom) {
+            listeChapitres.innerHTML = "";
+            titreLivreEnCours.textContent = "Aucun livre sélectionné";
+            audioPlayer.src = "";
+          }
+          rafraichirBibliotheque();
+        };
+      }
+    }
+
+    async function chargerLivre(blob, nomLivre) {
+      statusZone.textContent = `Ouverture de ${nomLivre}...`;
+      listeChapitres.innerHTML = "";
+      titreLivreEnCours.textContent = nomLivre;
+
+      try {
+        zipInstance = await JSZip.loadAsync(blob);
+        
+        let nccFileName = Object.keys(zipInstance.files).find(name => 
+          name.toLowerCase().endsWith("ncc.html") || name.toLowerCase().endsWith(".opf")
+        );
+
+        if (!nccFileName) {
+          statusZone.textContent = "Fichier de navigation DAISY introuvable.";
+          return;
+        }
+
+        const nccContent = await zipInstance.files[nccFileName].async("string");
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(nccContent, "text/html");
+        const headings = doc.querySelectorAll("h1, h2, h3, h4, h5, h6");
+
+        headings.forEach((heading, index) => {
+          const lien = heading.querySelector("a");
+          if (!lien) return;
+
+          const titreTexte = lien.textContent.trim();
+          const hrefCible = lien.getAttribute("href");
+
+          const li = document.createElement("li");
+          const btn = document.createElement("button");
+          btn.className = "chapter-btn";
+          btn.textContent = `${index + 1}. ${titreTexte}`;
+          btn.onclick = () => chargerEtLireChapitre(hrefCible, titreTexte);
+
+          li.appendChild(btn);
+          listeChapitres.appendChild(li);
+        });
+
+        statusZone.textContent = `Livre ${nomLivre} prêt. ${headings.length} chapitres trouvés.`;
+
+      } catch (err) {
+        console.error(err);
+        statusZone.textContent = "Erreur lors du chargement des chapitres.";
+      }
+    }
+
+    // Playlist du chapitre en cours : liste ordonnée de { fichier, clipBegin, clipEnd }
+    let playlistChapitre = [];
+    let indexClipActuel = 0;
+
+    async function chargerEtLireChapitre(hrefCible, titreTexte) {
+      if (!zipInstance) return;
+
+      // Force le focus sur la zone de statut pour couper le lecteur d'écran
+      statusZone.textContent = `Analyse du chapitre : ${titreTexte}...`;
+      statusZone.focus();
+
+      let nomFichierCible = hrefCible.split("#")[0];
+
+      try {
+        playlistChapitre = [];
+        indexClipActuel = 0;
+
+        // 1. Cas où le lien pointe vers un fichier SMIL (Daisy 2.02 standard)
+        if (nomFichierCible.toLowerCase().endsWith('.smil')) {
+          const smilFileKey = Object.keys(zipInstance.files).find(name =>
+            name.toLowerCase().endsWith(nomFichierCible.toLowerCase())
+          );
+
+          if (!smilFileKey) {
+            statusZone.textContent = `Fichier SMIL introuvable pour ${titreTexte}.`;
+            return;
+          }
+
+          const smilContent = await zipInstance.files[smilFileKey].async("string");
+          const parser = new DOMParser();
+          const smilDoc = parser.parseFromString(smilContent, "text/xml");
+
+          // IMPORTANT : un chapitre Daisy peut contenir PLUSIEURS petits clips audio
+          // (un par paragraphe/phrase). querySelectorAll récupère TOUS les clips,
+          // dans l'ordre du document, pour construire la playlist complète du chapitre.
+          const toutesLesBalisesAudio = smilDoc.querySelectorAll("audio");
+
+          if (toutesLesBalisesAudio.length === 0) {
+            statusZone.textContent = `Aucun fichier audio trouvé dans la structure SMIL pour ${titreTexte}.`;
+            return;
+          }
+
+          toutesLesBalisesAudio.forEach(audioTag => {
+            playlistChapitre.push({
+              fichier: audioTag.getAttribute("src"),
+              clipBegin: parserTempsNpt(audioTag.getAttribute("clip-begin") || audioTag.getAttribute("clipBegin")),
+              clipEnd: parserTempsNpt(audioTag.getAttribute("clip-end") || audioTag.getAttribute("clipEnd")),
+            });
+          });
+
+        } else {
+          // Cas où le lien pointe directement vers un fichier audio (rare, mais possible)
+          playlistChapitre.push({ fichier: nomFichierCible, clipBegin: 0, clipEnd: null });
+        }
+
+        statusZone.textContent = `Lecture en cours : ${titreTexte}`;
+        await lireClip(indexClipActuel);
+
+      } catch (err) {
+        console.error(err);
+        statusZone.textContent = "Erreur lors du lancement de la lecture audio.";
+      }
+    }
+
+    // Convertit une valeur de temps SMIL (ex: "npt=12.500s") en secondes (nombre)
+    function parserTempsNpt(valeur) {
+      if (!valeur) return null;
+      const nettoye = valeur.replace(/^npt=/, "").replace(/s$/, "");
+      const nombre = parseFloat(nettoye);
+      return isNaN(nombre) ? null : nombre;
+    }
+
+    // Charge et joue le clip à l'index donné de la playlist du chapitre courant
+    async function lireClip(index) {
+      if (index < 0 || index >= playlistChapitre.length) return;
+      indexClipActuel = index;
+      const clip = playlistChapitre[index];
+
+      const mp3FileName = clip.fichier.split("#")[0];
+      const fichierZipAudio = Object.keys(zipInstance.files).find(name =>
+        name.toLowerCase().endsWith(mp3FileName.toLowerCase())
+      );
+
+      if (!fichierZipAudio) {
+        statusZone.textContent = `Fichier audio introuvable : ${mp3FileName}.`;
+        return;
+      }
+
+      // Réutilise le même blob audio si plusieurs clips consécutifs partagent
+      // le même fichier MP3 (cas fréquent), pour éviter de le recharger à chaque fois.
+      if (audioPlayer.dataset.fichierCharge !== fichierZipAudio) {
+        const audioBlob = await zipInstance.files[fichierZipAudio].async("blob");
+        const audioUrl = URL.createObjectURL(audioBlob);
+        audioPlayer.src = audioUrl;
+        audioPlayer.dataset.fichierCharge = fichierZipAudio;
+        // Attendre que le navigateur connaisse la durée avant de positionner currentTime
+        await new Promise(resolve => {
+          if (audioPlayer.readyState >= 1) resolve();
+          else audioPlayer.addEventListener("loadedmetadata", resolve, { once: true });
+        });
+      }
+
+      audioPlayer.currentTime = clip.clipBegin || 0;
+      await audioPlayer.play();
+    }
+
+    // Quand un clip se termine (ou atteint son clip-end), on enchaîne sur le suivant.
+    audioPlayer.addEventListener("timeupdate", () => {
+      const clip = playlistChapitre[indexClipActuel];
+      if (clip && clip.clipEnd != null && audioPlayer.currentTime >= clip.clipEnd) {
+        passerAuClipSuivant();
+      }
+    });
+    audioPlayer.addEventListener("ended", () => {
+      passerAuClipSuivant();
+    });
+
+    function passerAuClipSuivant() {
+      if (indexClipActuel + 1 < playlistChapitre.length) {
+        lireClip(indexClipActuel + 1);
+      } else {
+        statusZone.textContent = "Fin du chapitre.";
+      }
+    }
+
+    function piloterAudio(action) {
+      if (!audioPlayer.src) {
+        statusZone.textContent = "Aucun chapitre en cours de lecture.";
+        statusZone.focus();
+        return;
+      }
+
+      if (action === "play") {
+        audioPlayer.play();
+        statusZone.textContent = "Lecture reprise.";
+      } else if (action === "pause") {
+        audioPlayer.pause();
+        statusZone.textContent = "Lecture en pause.";
+      } else if (action === "reculer") {
+        deplacerDansPlaylist(-15);
+        statusZone.textContent = "Recul de 15 secondes.";
+      } else if (action === "avancer") {
+        deplacerDansPlaylist(15);
+        statusZone.textContent = "Avance de 15 secondes.";
+      }
+      
+      // On force le focus à chaque commande pour que l'action soit bien annoncée
+      statusZone.focus();
+    }
+
+    // Avance ou recule de `delta` secondes en tenant compte du fait que le
+    // chapitre est découpé en plusieurs petits clips audio successifs.
+    // Si le déplacement dépasse les bornes du clip courant, on change de clip.
+    async function deplacerDansPlaylist(delta) {
+      const clipCourant = playlistChapitre[indexClipActuel];
+      const debutClip = clipCourant.clipBegin || 0;
+      const finClip = clipCourant.clipEnd != null ? clipCourant.clipEnd : audioPlayer.duration;
+
+      let tempsRestant = delta;
+      let index = indexClipActuel;
+      let positionDansClip = audioPlayer.currentTime;
+
+      if (delta > 0) {
+        // Avancer : consommer le temps restant du clip courant, puis passer
+        // au(x) clip(s) suivant(s) si nécessaire.
+        let margeDisponible = finClip - positionDansClip;
+        while (tempsRestant > margeDisponible && index < playlistChapitre.length - 1) {
+          tempsRestant -= margeDisponible;
+          index++;
+          const nextClip = playlistChapitre[index];
+          positionDansClip = nextClip.clipBegin || 0;
+          margeDisponible = (nextClip.clipEnd != null ? nextClip.clipEnd : Infinity) - positionDansClip;
+        }
+        positionDansClip = positionDansClip + Math.min(tempsRestant, margeDisponible);
+      } else {
+        // Reculer : consommer le temps en arrière dans le clip courant, puis
+        // revenir au(x) clip(s) précédent(s) si nécessaire.
+        tempsRestant = -tempsRestant; // valeur positive à soustraire
+        let margeDisponible = positionDansClip - debutClip;
+        while (tempsRestant > margeDisponible && index > 0) {
+          tempsRestant -= margeDisponible;
+          index--;
+          const prevClip = playlistChapitre[index];
+          const prevFin = prevClip.clipEnd != null ? prevClip.clipEnd : audioPlayer.duration;
+          positionDansClip = prevFin;
+          margeDisponible = prevFin - (prevClip.clipBegin || 0);
+        }
+        positionDansClip = Math.max(playlistChapitre[index].clipBegin || 0, positionDansClip - tempsRestant);
+      }
+
+      if (index !== indexClipActuel) {
+        await lireClip(index);
+      }
+      audioPlayer.currentTime = Math.max(0, positionDansClip);
+    }
+  </script>
+</body>
+</html>
