@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>DaisyPlayer Accessible - Bibliothèque</title>
+  <title>DaisyPlayer Accessible - Simplifié</title>
   <link rel="manifest" href="manifest.json">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
   <style>
@@ -124,9 +124,6 @@
   </header>
 
   <main>
-    <!-- Zone de statut : UNIQUEMENT mise à jour via aria-live, jamais de .focus()
-         forcé par script. C'est TalkBack qui décide seul d'annoncer ou non ce
-         changement, sans qu'on lui impose de déplacement de curseur. -->
     <div class="status-area" role="status" aria-live="polite" id="status">
       Connexion à la bibliothèque en cours...
     </div>
@@ -140,9 +137,6 @@
 
     <section aria-label="Lecteur audio" style="margin-top: 20px;">
       <h2 id="titreChapitreEnCours">Aucun chapitre en cours</h2>
-      <!-- Lecteur audio natif visible : TalkBack peut s'en servir directement
-           (barre de progression, bouton lecture/pause natif) en complément
-           des boutons ci-dessous. -->
       <audio id="audioPlayer" controls></audio>
       <div class="player-controls">
         <button onclick="piloterAudio('play')">Lire</button>
@@ -157,15 +151,12 @@
 
     <section aria-label="Ma Bibliothèque" style="margin-top: 30px;">
       <h2>Ma Bibliothèque</h2>
-      <ul id="listeLivres">
-        </ul>
+      <ul id="listeLivres"></ul>
     </section>
 
     <section aria-label="Livre en cours" style="margin-top: 30px;">
       <h2 id="titreLivreEnCours">Aucun livre sélectionné</h2>
 
-      <!-- Onglets Table des matières / Favoris : navigation 100% tactile,
-           aucun changement d'onglet n'est lu automatiquement. -->
       <div class="tabs-row" role="tablist" aria-label="Table des matières et favoris">
         <button id="ongletTable" role="tab" aria-selected="true" class="tab-active" onclick="changerOnglet('table')">Table des matières</button>
         <button id="ongletFavoris" role="tab" aria-selected="false" onclick="changerOnglet('favoris')">Favoris</button>
@@ -177,7 +168,7 @@
 
       <div id="panneauFavoris" class="tab-panel">
         <ul id="listeFavoris"></ul>
-        <p id="favorisVide" style="display:none; color:#AAAAAA;">Aucun favori pour ce livre. Touchez « Ajouter ce passage aux favoris » pendant la lecture.</p>
+        <p id="favorisVide" style="display:none; color:#AAAAAA;">Aucun favori pour ce livre.</p>
       </div>
     </section>
   </main>
@@ -202,10 +193,6 @@
     let indexChapitreActuel = -1;
     let titreChapitreActuelTexte = "";
 
-    // Playlist du chapitre en cours : liste ordonnée de { fichier, clipBegin, clipEnd }
-    let playlistChapitre = [];
-    let indexClipActuel = 0;
-
     const request = indexedDB.open("DaisyLibraryDB", 2);
 
     request.onupgradeneeded = (event) => {
@@ -221,12 +208,8 @@
 
     request.onsuccess = (event) => {
       db = event.target.result;
-      statusZone.textContent = "Bibliothèque chargée. Prête.";
+      statusZone.textContent = "Bibliothèque prête.";
       rafraichirBibliotheque();
-    };
-
-    request.onerror = () => {
-      statusZone.textContent = "Erreur lors de l'accès à la bibliothèque locale.";
     };
 
     // ────────────────────────────────────────────────
@@ -235,13 +218,12 @@
     async function rafraichirBibliotheque() {
       listeLivres.innerHTML = "";
       const transaction = db.transaction("books", "readonly");
-      const store = transaction.objectStore("books");
-      const requestAll = store.getAll();
+      const requestAll = transaction.objectStore("books").getAll();
 
       requestAll.onsuccess = () => {
         const livres = requestAll.result;
         if (livres.length === 0) {
-          listeLivres.innerHTML = "<li>Aucun livre dans votre bibliothèque.</li>";
+          listeLivres.innerHTML = "<li>Aucun livre.</li>";
           return;
         }
 
@@ -274,58 +256,39 @@
       const file = event.target.files[0];
       if (!file) return;
 
-      statusZone.textContent = `Ajout de ${file.name} à la bibliothèque...`;
-
+      statusZone.textContent = `Ajout de ${file.name}...`;
       const transaction = db.transaction("books", "readwrite");
-      const store = transaction.objectStore("books");
-
-      const nouveauLivre = {
-        name: file.name.replace(".zip", ""),
-        blob: file
-      };
-
-      const addRequest = store.put(nouveauLivre);
+      
+      const nouveauLivre = { name: file.name.replace(".zip", ""), blob: file };
+      const addRequest = transaction.objectStore("books").put(nouveauLivre);
 
       addRequest.onsuccess = () => {
-        statusZone.textContent = `${nouveauLivre.name} a été ajouté avec succès à votre bibliothèque.`;
+        statusZone.textContent = `Livre ajouté avec succès.`;
         rafraichirBibliotheque();
-      };
-
-      addRequest.onerror = () => {
-        statusZone.textContent = "Impossible de sauvegarder le livre.";
       };
     }
 
     function supprimerLivre(nom) {
-      if (confirm(`Voulez-vous vraiment supprimer le livre ${nom} ?`)) {
+      if (confirm(`Voulez-vous supprimer ${nom} ?`)) {
         const transaction = db.transaction("books", "readwrite");
-        const store = transaction.objectStore("books");
-        store.delete(nom);
-
+        transaction.objectStore("books").delete(nom);
         transaction.oncomplete = () => {
-          statusZone.textContent = `Le livre ${nom} a été supprimé.`;
-          if (titreLivreEnCours.textContent === nom) {
-            listeChapitres.innerHTML = "";
-            titreLivreEnCours.textContent = "Aucun livre sélectionné";
-            titreChapitreEnCours.textContent = "Aucun chapitre en cours";
-            audioPlayer.removeAttribute("src");
-            nomLivreActuel = null;
-          }
+          statusZone.textContent = `Livre supprimé.`;
+          audioPlayer.pause();
+          audioPlayer.removeAttribute("src");
           rafraichirBibliotheque();
         };
       }
     }
 
     // ────────────────────────────────────────────────
-    // CHARGEMENT D'UN LIVRE ET TABLE DES MATIÈRES
-    // (aucune lecture automatique : on construit juste la liste de boutons)
+    // LECTURE SIMPLE D'UN CHAPITRE
     // ────────────────────────────────────────────────
     async function chargerLivre(blob, nomLivre) {
       statusZone.textContent = `Ouverture de ${nomLivre}...`;
       listeChapitres.innerHTML = "";
       titreLivreEnCours.textContent = nomLivre;
       nomLivreActuel = nomLivre;
-      indexChapitreActuel = -1;
 
       try {
         zipInstance = await JSZip.loadAsync(blob);
@@ -334,14 +297,8 @@
           name.toLowerCase().endsWith("ncc.html") || name.toLowerCase().endsWith(".opf")
         );
 
-        if (!nccFileName) {
-          statusZone.textContent = "Fichier de navigation DAISY introuvable.";
-          return;
-        }
-
         const nccContent = await zipInstance.files[nccFileName].async("string");
-        const parser = new DOMParser();
-        const doc = parser.parseFromString(nccContent, "text/html");
+        const doc = new DOMParser().parseFromString(nccContent, "text/html");
         const headings = doc.querySelectorAll("h1, h2, h3, h4, h5, h6");
 
         headings.forEach((heading, index) => {
@@ -355,244 +312,122 @@
           const btn = document.createElement("button");
           btn.className = "chapter-btn";
           btn.textContent = `${index + 1}. ${titreTexte}`;
-          // Navigation 100% tactile : un clic charge ET lance le chapitre.
-          // Aucune lecture vocale de la table n'est déclenchée automatiquement.
+          
           btn.onclick = () => {
             document.querySelectorAll(".chapter-btn").forEach(b => b.classList.remove("chapitre-actif"));
             btn.classList.add("chapitre-actif");
-            chargerEtLireChapitre(hrefCible, titreTexte, index);
+            chargerEtLireChapitreSimple(hrefCible, titreTexte, index);
           };
 
           li.appendChild(btn);
           listeChapitres.appendChild(li);
         });
 
-        statusZone.textContent = `Livre ${nomLivre} prêt. ${headings.length} chapitres trouvés. Touchez un chapitre pour l'écouter.`;
-        await rafraichirFavoris();
-
+        statusZone.textContent = `Livre prêt. Touchez un chapitre.`;
+        rafraichirFavoris();
       } catch (err) {
-        console.error(err);
-        statusZone.textContent = "Erreur lors du chargement des chapitres.";
+        statusZone.textContent = "Erreur de chargement.";
       }
     }
 
-    // ────────────────────────────────────────────────
-    // LECTURE D'UN CHAPITRE — PLAYLIST DE CLIPS SMIL
-    // ────────────────────────────────────────────────
-    async function chargerEtLireChapitre(hrefCible, titreTexte, index) {
+    async function chargerEtLireChapitreSimple(hrefCible, titreTexte, index) {
       if (!zipInstance) return;
 
-      statusZone.textContent = `Analyse du chapitre : ${titreTexte}...`;
+      statusZone.textContent = `Chargement de : ${titreTexte}...`;
+      titreChapitreEnCours.textContent = titreTexte;
       indexChapitreActuel = index;
       titreChapitreActuelTexte = titreTexte;
-      titreChapitreEnCours.textContent = titreTexte;
+
+      // 1. ARRÊT TOTAL du lecteur pour éviter les chevauchements
+      audioPlayer.pause();
+      audioPlayer.removeAttribute("src");
 
       let nomFichierCible = hrefCible.split("#")[0];
+      let fichierAudioFinal = nomFichierCible;
+      let departAudio = 0; // Au cas où le fichier indique un point de départ précis
 
       try {
-        playlistChapitre = [];
-        indexClipActuel = 0;
-
+        // 2. Si c'est un fichier SMIL, on cherche juste le nom du MP3 principal dedans
         if (nomFichierCible.toLowerCase().endsWith('.smil')) {
           const smilFileKey = Object.keys(zipInstance.files).find(name =>
             name.toLowerCase().endsWith(nomFichierCible.toLowerCase())
           );
 
-          if (!smilFileKey) {
-            statusZone.textContent = `Fichier SMIL introuvable pour ${titreTexte}.`;
-            return;
+          if (smilFileKey) {
+            const smilContent = await zipInstance.files[smilFileKey].async("string");
+            const smilDoc = new DOMParser().parseFromString(smilContent, "text/xml");
+            
+            // On prend le premier fichier audio trouvé
+            const audioTag = smilDoc.querySelector("audio");
+            if (audioTag) {
+              fichierAudioFinal = audioTag.getAttribute("src").split("#")[0];
+              
+              // On essaie de récupérer le point de départ s'il existe
+              let cb = audioTag.getAttribute("clip-begin") || audioTag.getAttribute("clipBegin");
+              if (cb) departAudio = parseFloat(cb.replace(/^npt=/, "").replace(/s$/, "")) || 0;
+            }
           }
-
-          const smilContent = await zipInstance.files[smilFileKey].async("string");
-          const parser = new DOMParser();
-          const smilDoc = parser.parseFromString(smilContent, "text/xml");
-
-          // Un chapitre Daisy peut contenir PLUSIEURS petits clips audio
-          // (un par paragraphe/phrase). querySelectorAll récupère TOUS les
-          // clips, dans l'ordre du document, pour construire la playlist
-          // complète du chapitre — c'est ce qui permet la lecture jusqu'au bout.
-          const toutesLesBalisesAudio = smilDoc.querySelectorAll("audio");
-
-          if (toutesLesBalisesAudio.length === 0) {
-            statusZone.textContent = `Aucun fichier audio trouvé dans la structure SMIL pour ${titreTexte}.`;
-            return;
-          }
-
-          toutesLesBalisesAudio.forEach(audioTag => {
-            playlistChapitre.push({
-              fichier: audioTag.getAttribute("src"),
-              clipBegin: parserTempsNpt(audioTag.getAttribute("clip-begin") || audioTag.getAttribute("clipBegin")),
-              clipEnd: parserTempsNpt(audioTag.getAttribute("clip-end") || audioTag.getAttribute("clipEnd")),
-            });
-          });
-
-        } else {
-          playlistChapitre.push({ fichier: nomFichierCible, clipBegin: 0, clipEnd: null });
         }
 
-        statusZone.textContent = `Lecture en cours : ${titreTexte}`;
-        await lireClip(0);
+        // 3. Trouver le MP3 dans le ZIP
+        const fichierZipAudio = Object.keys(zipInstance.files).find(name =>
+          name.toLowerCase().endsWith(fichierAudioFinal.toLowerCase())
+        );
+
+        if (!fichierZipAudio) {
+          statusZone.textContent = `Audio introuvable.`;
+          return;
+        }
+
+        // 4. Lancer la lecture directe
+        const audioBlob = await zipInstance.files[fichierZipAudio].async("blob");
+        audioPlayer.src = URL.createObjectURL(audioBlob);
+        
+        // Attendre que l'audio soit prêt pour appliquer le point de départ éventuel
+        audioPlayer.onloadedmetadata = () => {
+           audioPlayer.currentTime = departAudio;
+           audioPlayer.play();
+        };
+
+        statusZone.textContent = `Lecture : ${titreTexte}`;
 
       } catch (err) {
-        console.error(err);
-        statusZone.textContent = "Erreur lors du lancement de la lecture audio.";
-      }
-    }
-
-    function parserTempsNpt(valeur) {
-      if (!valeur) return null;
-      const nettoye = valeur.replace(/^npt=/, "").replace(/s$/, "");
-      const nombre = parseFloat(nettoye);
-      return isNaN(nombre) ? null : nombre;
-    }
-
-    async function lireClip(index) {
-      if (index < 0 || index >= playlistChapitre.length) return;
-      indexClipActuel = index;
-      const clip = playlistChapitre[index];
-
-      const mp3FileName = clip.fichier.split("#")[0];
-      const fichierZipAudio = Object.keys(zipInstance.files).find(name =>
-        name.toLowerCase().endsWith(mp3FileName.toLowerCase())
-      );
-
-      if (!fichierZipAudio) {
-        statusZone.textContent = `Fichier audio introuvable : ${mp3FileName}.`;
-        return;
-      }
-
-      if (audioPlayer.dataset.fichierCharge !== fichierZipAudio) {
-        const audioBlob = await zipInstance.files[fichierZipAudio].async("blob");
-        const audioUrl = URL.createObjectURL(audioBlob);
-        audioPlayer.src = audioUrl;
-        audioPlayer.dataset.fichierCharge = fichierZipAudio;
-        await new Promise(resolve => {
-          if (audioPlayer.readyState >= 1) resolve();
-          else audioPlayer.addEventListener("loadedmetadata", resolve, { once: true });
-        });
-      }
-
-      audioPlayer.currentTime = clip.clipBegin || 0;
-      await audioPlayer.play();
-    }
-
-    audioPlayer.addEventListener("timeupdate", () => {
-      const clip = playlistChapitre[indexClipActuel];
-      if (clip && clip.clipEnd != null && audioPlayer.currentTime >= clip.clipEnd) {
-        passerAuClipSuivant();
-      }
-    });
-    audioPlayer.addEventListener("ended", () => {
-      passerAuClipSuivant();
-    });
-
-    function passerAuClipSuivant() {
-      if (indexClipActuel + 1 < playlistChapitre.length) {
-        lireClip(indexClipActuel + 1);
-      } else {
-        statusZone.textContent = "Fin du chapitre.";
+        statusZone.textContent = "Erreur audio.";
       }
     }
 
     // ────────────────────────────────────────────────
-    // COMMANDES DE LECTURE (boutons tactiles uniquement,
-    // aucun focus forcé par script)
+    // COMMANDES DE BASE
     // ────────────────────────────────────────────────
     function piloterAudio(action) {
-      if (!audioPlayer.src) {
-        statusZone.textContent = "Aucun chapitre en cours de lecture.";
-        return;
-      }
+      if (!audioPlayer.src) return;
 
-      if (action === "play") {
-        audioPlayer.play();
-        statusZone.textContent = "Lecture reprise.";
-      } else if (action === "pause") {
-        audioPlayer.pause();
-        statusZone.textContent = "Lecture en pause.";
-      } else if (action === "reculer") {
-        deplacerDansPlaylist(-15);
-        statusZone.textContent = "Recul de 15 secondes.";
-      } else if (action === "avancer") {
-        deplacerDansPlaylist(15);
-        statusZone.textContent = "Avance de 15 secondes.";
-      }
-    }
-
-    async function deplacerDansPlaylist(delta) {
-      const clipCourant = playlistChapitre[indexClipActuel];
-      if (!clipCourant) return;
-      const debutClip = clipCourant.clipBegin || 0;
-      const finClip = clipCourant.clipEnd != null ? clipCourant.clipEnd : audioPlayer.duration;
-
-      let tempsRestant = delta;
-      let index = indexClipActuel;
-      let positionDansClip = audioPlayer.currentTime;
-
-      if (delta > 0) {
-        let margeDisponible = finClip - positionDansClip;
-        while (tempsRestant > margeDisponible && index < playlistChapitre.length - 1) {
-          tempsRestant -= margeDisponible;
-          index++;
-          const nextClip = playlistChapitre[index];
-          positionDansClip = nextClip.clipBegin || 0;
-          margeDisponible = (nextClip.clipEnd != null ? nextClip.clipEnd : Infinity) - positionDansClip;
-        }
-        positionDansClip = positionDansClip + Math.min(tempsRestant, margeDisponible);
-      } else {
-        tempsRestant = -tempsRestant;
-        let margeDisponible = positionDansClip - debutClip;
-        while (tempsRestant > margeDisponible && index > 0) {
-          tempsRestant -= margeDisponible;
-          index--;
-          const prevClip = playlistChapitre[index];
-          const prevFin = prevClip.clipEnd != null ? prevClip.clipEnd : audioPlayer.duration;
-          positionDansClip = prevFin;
-          margeDisponible = prevFin - (prevClip.clipBegin || 0);
-        }
-        positionDansClip = Math.max(playlistChapitre[index].clipBegin || 0, positionDansClip - tempsRestant);
-      }
-
-      if (index !== indexClipActuel) {
-        await lireClip(index);
-      }
-      audioPlayer.currentTime = Math.max(0, positionDansClip);
+      if (action === "play") audioPlayer.play();
+      else if (action === "pause") audioPlayer.pause();
+      else if (action === "reculer") audioPlayer.currentTime = Math.max(0, audioPlayer.currentTime - 15);
+      else if (action === "avancer") audioPlayer.currentTime += 15;
     }
 
     // ────────────────────────────────────────────────
-    // ONGLETS TABLE DES MATIÈRES / FAVORIS
+    // ONGLETS ET FAVORIS (Adaptés pour la version simple)
     // ────────────────────────────────────────────────
     function changerOnglet(onglet) {
-      const panneauTable = document.getElementById("panneauTable");
-      const panneauFavoris = document.getElementById("panneauFavoris");
-      const ongletTable = document.getElementById("ongletTable");
-      const ongletFavoris = document.getElementById("ongletFavoris");
+      const pTable = document.getElementById("panneauTable");
+      const pFav = document.getElementById("panneauFavoris");
+      const oTable = document.getElementById("ongletTable");
+      const oFav = document.getElementById("ongletFavoris");
 
       if (onglet === "table") {
-        panneauTable.classList.add("active");
-        panneauFavoris.classList.remove("active");
-        ongletTable.classList.add("tab-active");
-        ongletFavoris.classList.remove("tab-active");
-        ongletTable.setAttribute("aria-selected", "true");
-        ongletFavoris.setAttribute("aria-selected", "false");
+        pTable.classList.add("active"); pFav.classList.remove("active");
+        oTable.classList.add("tab-active"); oFav.classList.remove("tab-active");
       } else {
-        panneauFavoris.classList.add("active");
-        panneauTable.classList.remove("active");
-        ongletFavoris.classList.add("tab-active");
-        ongletTable.classList.remove("tab-active");
-        ongletFavoris.setAttribute("aria-selected", "true");
-        ongletTable.setAttribute("aria-selected", "false");
+        pFav.classList.add("active"); pTable.classList.remove("active");
+        oFav.classList.add("tab-active"); oTable.classList.remove("tab-active");
       }
     }
 
-    // ────────────────────────────────────────────────
-    // FAVORIS (position = livre + chapitre + minutage)
-    // ────────────────────────────────────────────────
     function ajouterFavori() {
-      if (!nomLivreActuel || indexChapitreActuel < 0) {
-        statusZone.textContent = "Aucun chapitre en cours : impossible d'ajouter un favori.";
-        return;
-      }
+      if (!nomLivreActuel || indexChapitreActuel < 0) return;
       const fav = {
         favId: "fav_" + Date.now(),
         nomLivre: nomLivreActuel,
@@ -600,85 +435,57 @@
         titreChapitre: titreChapitreActuelTexte,
         tempsDansChapitre: audioPlayer.currentTime || 0,
       };
-      const transaction = db.transaction("favoris", "readwrite");
-      transaction.objectStore("favoris").put(fav);
-      transaction.oncomplete = () => {
-        statusZone.textContent = `Favori ajouté : ${fav.titreChapitre} à ${formaterTemps(fav.tempsDansChapitre)}.`;
+      db.transaction("favoris", "readwrite").objectStore("favoris").put(fav).oncomplete = () => {
+        statusZone.textContent = `Favori ajouté.`;
         rafraichirFavoris();
       };
     }
 
-    function formaterTemps(secondes) {
-      if (!secondes || isNaN(secondes)) return "0:00";
-      const m = Math.floor(secondes / 60);
-      const s = Math.floor(secondes % 60);
-      return m + ":" + String(s).padStart(2, "0");
+    function formaterTemps(sec) {
+      if (!sec || isNaN(sec)) return "0:00";
+      return Math.floor(sec / 60) + ":" + String(Math.floor(sec % 60)).padStart(2, "0");
     }
 
     async function rafraichirFavoris() {
       listeFavorisEl.innerHTML = "";
-      if (!nomLivreActuel) { favorisVideEl.style.display = ""; return; }
+      if (!nomLivreActuel) return;
 
-      const transaction = db.transaction("favoris", "readonly");
-      const index = transaction.objectStore("favoris").index("nomLivre");
-      const requestAll = index.getAll(nomLivreActuel);
-
+      const requestAll = db.transaction("favoris", "readonly").objectStore("favoris").index("nomLivre").getAll(nomLivreActuel);
       requestAll.onsuccess = () => {
         const favoris = requestAll.result;
-        if (favoris.length === 0) {
-          favorisVideEl.style.display = "";
-          return;
-        }
+        if (favoris.length === 0) { favorisVideEl.style.display = ""; return; }
         favorisVideEl.style.display = "none";
-        favoris.sort((a, b) => a.indexChapitre - b.indexChapitre || a.tempsDansChapitre - b.tempsDansChapitre);
-
+        
         favoris.forEach((fav) => {
           const li = document.createElement("li");
-
           const btn = document.createElement("button");
           btn.className = "fav-btn";
           btn.textContent = `${fav.titreChapitre} — à ${formaterTemps(fav.tempsDansChapitre)}`;
           btn.onclick = () => allerAuFavori(fav);
-
+          
           const delBtn = document.createElement("button");
           delBtn.className = "delete-btn";
-          delBtn.textContent = "Supprimer ce favori";
-          delBtn.onclick = () => supprimerFavori(fav.favId);
-
-          li.appendChild(btn);
-          li.appendChild(delBtn);
-          listeFavorisEl.appendChild(li);
+          delBtn.textContent = "Supprimer";
+          delBtn.onclick = () => {
+             db.transaction("favoris", "readwrite").objectStore("favoris").delete(fav.favId).oncomplete = rafraichirFavoris;
+          };
+          
+          li.appendChild(btn); li.appendChild(delBtn); listeFavorisEl.appendChild(li);
         });
       };
     }
 
-    function supprimerFavori(favId) {
-      const transaction = db.transaction("favoris", "readwrite");
-      transaction.objectStore("favoris").delete(favId);
-      transaction.oncomplete = () => {
-        statusZone.textContent = "Favori supprimé.";
-        rafraichirFavoris();
-      };
-    }
-
-    async function allerAuFavori(fav) {
-      // Retrouver le lien du chapitre correspondant dans la table des matières actuelle
+    function allerAuFavori(fav) {
       const boutons = document.querySelectorAll(".chapter-btn");
       const btnCible = boutons[fav.indexChapitre];
-      if (!btnCible) {
-        statusZone.textContent = "Chapitre introuvable pour ce favori.";
-        return;
-      }
-      btnCible.click();
-      // Attendre que le chapitre soit chargé, puis se positionner au bon moment
-      const attenteChargement = setInterval(() => {
-        if (playlistChapitre.length > 0 && audioPlayer.readyState >= 1) {
-          clearInterval(attenteChargement);
+      if (btnCible) {
+        btnCible.click();
+        // On attend un instant que l'audio commence à charger pour changer le temps
+        setTimeout(() => {
           audioPlayer.currentTime = fav.tempsDansChapitre;
           changerOnglet("table");
-          statusZone.textContent = `Favori : ${fav.titreChapitre} à ${formaterTemps(fav.tempsDansChapitre)}.`;
-        }
-      }, 150);
+        }, 1000);
+      }
     }
   </script>
 </body>
