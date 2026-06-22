@@ -1,4 +1,4 @@
-const CACHE = "daisy-v3";
+const CACHE = "daisy-v4";
 
 self.addEventListener("install", event => {
   event.waitUntil(
