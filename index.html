@@ -1,0 +1,1006 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DaisyPlayer Accessible - Simplifié</title>
+  <link rel="manifest" href="manifest.json">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <style>
+    body {
+      background-color: #121212;
+      color: #FFFFFF;
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 20px;
+      font-size: 1.3rem;
+    }
+    button, label.button-label {
+      display: block;
+      text-align: center;
+      background-color: #FFCC00;
+      color: #000000;
+      border: none;
+      padding: 15px 25px;
+      font-size: 1.4rem;
+      font-weight: bold;
+      margin: 10px 0;
+      width: 100%;
+      border-radius: 8px;
+      cursor: pointer;
+      box-sizing: border-box;
+    }
+    button:focus, label.button-label:focus-within {
+      outline: 4px solid #00E6FF;
+    }
+    input[type="file"] {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      border: 0;
+    }
+    .status-area {
+      background-color: #1E1E1E;
+      padding: 15px;
+      border-left: 5px solid #FFCC00;
+      margin-bottom: 20px;
+    }
+    .player-controls {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-top: 20px;
+    }
+    ul {
+      list-style-type: none;
+      padding: 0;
+    }
+    li {
+      margin: 15px 0;
+      padding: 10px;
+      background-color: #1E1E1E;
+      border-radius: 8px;
+    }
+    .book-item {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .chapter-btn {
+      background-color: #2A2A2A;
+      color: #FFFFFF;
+      border: 2px solid #FFFFFF;
+      text-align: left;
+    }
+    .chapter-btn:focus {
+      background-color: #FFCC00;
+      color: #000000;
+    }
+    .chapter-btn.chapitre-actif {
+      border-color: #FFCC00;
+      border-width: 3px;
+    }
+    .delete-btn {
+      background-color: #FF3333;
+      color: #FFFFFF;
+    }
+
+    /* Onglets principaux : Lecture / Bibliothèque */
+    .main-tabs-row {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 20px;
+      border-bottom: 3px solid #333333;
+    }
+    .main-tab-btn {
+      flex: 1;
+      background-color: transparent;
+      color: #AAAAAA;
+      border: none;
+      border-bottom: 4px solid transparent;
+      border-radius: 0;
+      padding: 14px 8px;
+      margin: 0;
+    }
+    .main-tab-btn.tab-active {
+      color: #FFCC00;
+      border-bottom-color: #FFCC00;
+    }
+    .main-tab-panel { display: none; }
+    .main-tab-panel.active { display: block; }
+
+    /* Lecteur audio natif masqué : on garde l'élément pour la lecture, sans afficher la barre de progression */
+    audio {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    /* En-tête persistant : titre du livre + chapitre en cours */
+    .lecture-en-cours-header {
+      background-color: #1E1E1E;
+      border-radius: 8px;
+      padding: 15px;
+      margin-bottom: 15px;
+    }
+    .lecture-en-cours-header h2 {
+      margin: 0 0 6px 0;
+      font-size: 1.5rem;
+      color: #FFCC00;
+    }
+    .lecture-en-cours-header p {
+      margin: 0;
+      font-size: 1.2rem;
+      color: #FFFFFF;
+    }
+
+    .btn-fermer {
+      background-color: #2A2A2A;
+      color: #FFFFFF;
+      border: 2px solid #FF3333;
+      margin-top: 20px;
+    }
+
+    /* Commande vocale */
+    .btn-parler {
+      background-color: #1A3A1A;
+      color: #FFFFFF;
+      border: 3px solid #00CC44;
+      margin-top: 10px;
+      font-size: 1.5rem;
+    }
+    .btn-parler.ecoute-active {
+      background-color: #003300;
+      border-color: #00FF55;
+      animation: pulse-vert 1s infinite;
+    }
+    @keyframes pulse-vert {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(0,255,85,0.4); }
+      50%       { box-shadow: 0 0 0 10px rgba(0,255,85,0); }
+    }
+    .zone-retour-vocal {
+      background-color: #1A1A2E;
+      border-left: 5px solid #00CC44;
+      padding: 12px 15px;
+      margin-top: 10px;
+      font-size: 1.2rem;
+      min-height: 48px;
+      display: none;
+    }
+    .zone-retour-vocal.visible { display: block; }
+
+    /* Notes vocales */
+    .note-item {
+      background-color: #1E1E2E;
+      border-left: 4px solid #8888FF;
+      padding: 10px;
+      margin: 8px 0;
+      border-radius: 6px;
+      font-size: 1.1rem;
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <h1>DaisyPlayer</h1>
+  </header>
+
+  <main>
+    <div class="status-area" role="status" aria-live="polite" id="status">
+      Connexion à la bibliothèque en cours...
+    </div>
+
+    <!-- En-tête persistant : titre du livre + chapitre en cours -->
+    <div class="lecture-en-cours-header" id="enTeteLecture" aria-live="polite">
+      <h2 id="titreLivreHeader">Aucun livre en cours</h2>
+      <p id="titreChapitreHeader">Aucun chapitre en cours</p>
+    </div>
+
+    <!-- Onglets principaux -->
+    <div class="main-tabs-row" role="tablist" aria-label="Sections de l'application">
+      <button id="mainOngletLecture" class="main-tab-btn tab-active" role="tab" aria-selected="true" aria-controls="mainPanneauLecture" onclick="changerOngletPrincipal('lecture')">
+        Lecture
+      </button>
+      <button id="mainOngletBiblio" class="main-tab-btn" role="tab" aria-selected="false" aria-controls="mainPanneauBiblio" onclick="changerOngletPrincipal('biblio')">
+        Bibliothèque
+      </button>
+      <button id="mainOngletNouveau" class="main-tab-btn" role="tab" aria-selected="false" aria-controls="mainPanneauNouveau" onclick="changerOngletPrincipal('nouveau')">
+        Nouveau livre
+      </button>
+    </div>
+
+    <!-- PANNEAU LECTURE -->
+    <div id="mainPanneauLecture" class="main-tab-panel active" role="tabpanel" aria-labelledby="mainOngletLecture">
+
+      <section aria-label="Lecteur audio">
+        <audio id="audioPlayer"></audio>
+        <div class="player-controls">
+          <button onclick="piloterAudio('play')">Lire</button>
+          <button onclick="piloterAudio('pause')">Pause</button>
+        </div>
+
+        <button id="btnParler" class="btn-parler" onclick="activerEcouteVocale()" aria-label="Parler pour donner une commande vocale">
+          Parler
+        </button>
+        <div id="zoneRetourVocal" class="zone-retour-vocal" role="status" aria-live="polite"></div>
+
+        <button onclick="fermerApplication()" class="btn-fermer">
+          Fermer l'application
+        </button>
+      </section>
+
+      <section aria-label="Table des matières" style="margin-top: 30px;">
+        <h2>Table des matières</h2>
+        <ul id="tableMatieres"></ul>
+      </section>
+
+      <section aria-label="Notes vocales" style="margin-top: 30px;">
+        <h2>Notes</h2>
+        <ul id="listeNotes"></ul>
+      </section>
+
+    </div>
+
+    <!-- PANNEAU BIBLIOTHÈQUE -->
+    <div id="mainPanneauBiblio" class="main-tab-panel" role="tabpanel" aria-labelledby="mainOngletBiblio">
+
+      <section aria-label="Ma Bibliothèque">
+        <h2>Ma Bibliothèque</h2>
+        <ul id="listeLivres"></ul>
+      </section>
+
+    </div>
+
+    <!-- PANNEAU NOUVEAU LIVRE -->
+    <div id="mainPanneauNouveau" class="main-tab-panel" role="tabpanel" aria-labelledby="mainOngletNouveau">
+
+      <section aria-label="Importer un nouveau livre">
+        <h2>Ajouter un nouveau livre</h2>
+        <label class="button-label">
+          Ajouter un livre à la bibliothèque (ZIP)
+          <input type="file" id="fileInput" accept=".zip" onchange="ajouterLivreALaBibliotheque(event)">
+        </label>
+      </section>
+
+    </div>
+  </main>
+
+  <script>
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register("./sw.js").catch((err) => console.error(err));
+    }
+
+    // --- NOUVEAU CODE : Demande de stockage persistant ---
+    if (navigator.storage && navigator.storage.persist) {
+      navigator.storage.persist().then((granted) => {
+        if (granted) {
+          console.log("Stockage persistant accordé par le navigateur.");
+        } else {
+          console.log("Stockage persistant refusé (les données pourraient être effacées en cas de manque de place).");
+        }
+      });
+    }
+    // -----------------------------------------------------
+
+    const statusZone = document.getElementById("status");
+    const listeLivres = document.getElementById("listeLivres");
+    const listeChapitres = document.getElementById("tableMatieres");
+    const titreLivreEnCours = document.getElementById("titreLivreHeader");
+    const titreChapitreEnCours = document.getElementById("titreChapitreHeader");
+    const audioPlayer = document.getElementById("audioPlayer");
+
+    let db = null;
+    let zipInstance = null;
+    let nomLivreActuel = null;
+    let indexChapitreActuel = -1;
+    let titreChapitreActuelTexte = "";
+    let chapitresLivreActuel = [];
+    let pauseDemandeeParUtilisateur = false;
+
+    const request = indexedDB.open("DaisyLibraryDB", 4);
+
+    request.onupgradeneeded = (event) => {
+      db = event.target.result;
+      
+      // Sécurisation : on ne supprime plus la table 'books' lors d'une mise à jour
+      if (!db.objectStoreNames.contains("books")) {
+        db.createObjectStore("books", { keyPath: "name" });
+      }
+      
+      if (!db.objectStoreNames.contains("notes")) {
+        const notesStore = db.createObjectStore("notes", { keyPath: "noteId" });
+        notesStore.createIndex("nomLivre", "nomLivre", { unique: false });
+      }
+    };
+
+    request.onsuccess = (event) => {
+      db = event.target.result;
+      statusZone.textContent = "Bibliothèque prête.";
+      rafraichirBibliotheque();
+      reprendreDerniereLecture();
+      rafraichirNotes();
+    };
+
+    // ────────────────────────────────────────────────
+    // REPRISE AUTOMATIQUE (mémorisation chapitre + position)
+    // ────────────────────────────────────────────────
+    function sauvegarderPositionLecture() {
+      if (!nomLivreActuel || indexChapitreActuel < 0) return;
+      const position = {
+        nomLivre: nomLivreActuel,
+        indexChapitre: indexChapitreActuel,
+        titreChapitre: titreChapitreActuelTexte,
+        tempsDansChapitre: audioPlayer.currentTime || 0,
+      };
+      localStorage.setItem("daisy_derniere_position", JSON.stringify(position));
+    }
+
+    function reprendreDerniereLecture() {
+      const sauvegarde = localStorage.getItem("daisy_derniere_position");
+      if (!sauvegarde) return;
+
+      let position;
+      try {
+        position = JSON.parse(sauvegarde);
+      } catch (e) {
+        return;
+      }
+      if (!position || !position.nomLivre) return;
+
+      const transaction = db.transaction("books", "readonly");
+      const req = transaction.objectStore("books").get(position.nomLivre);
+      req.onsuccess = async () => {
+        const livre = req.result;
+        if (!livre) return;
+
+        statusZone.textContent = `Reprise de la lecture en cours...`;
+        await chargerLivre(livre.arrayBuffer, livre.name);
+
+        // Une fois la table des matières reconstruite, on relance le chapitre exact
+        const boutons = document.querySelectorAll(".chapter-btn");
+        const btnCible = boutons[position.indexChapitre];
+        if (btnCible) {
+          btnCible.click();
+          const tempsAReprendre = position.tempsDansChapitre || 0;
+          const reprendrePosition = () => {
+            audioPlayer.currentTime = tempsAReprendre;
+            pauseDemandeeParUtilisateur = true;
+            audioPlayer.pause();
+            audioPlayer.removeEventListener("loadedmetadata", reprendrePosition);
+          };
+          audioPlayer.addEventListener("loadedmetadata", reprendrePosition);
+        }
+      };
+    }
+
+    // Sauvegarde régulière pendant la lecture, pour ne pas perdre la position en cas de fermeture brutale
+    audioPlayer.addEventListener("timeupdate", () => {
+      sauvegarderPositionLecture();
+    });
+
+    // Sauvegarde de sécurité si l'app est fermée/mise en arrière-plan sans passer par le bouton Fermer
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "hidden") {
+        sauvegarderPositionLecture();
+      }
+    });
+
+    function fermerApplication() {
+      sauvegarderPositionLecture();
+      statusZone.textContent = "Position sauvegardée. Fermeture...";
+      audioPlayer.pause();
+      // Tentative de fermeture (fonctionne si l'app a été ouverte par script ou en PWA autonome)
+      window.close();
+      // Si window.close() est bloqué par le navigateur (cas fréquent), on informe l'utilisateur
+      setTimeout(() => {
+        statusZone.textContent = "Vous pouvez fermer l'application. Votre position est sauvegardée.";
+      }, 500);
+    }
+
+    // ────────────────────────────────────────────────
+    // BIBLIOTHÈQUE
+    // ────────────────────────────────────────────────
+    async function rafraichirBibliotheque() {
+      listeLivres.innerHTML = "";
+      const transaction = db.transaction("books", "readonly");
+      const requestAll = transaction.objectStore("books").getAll();
+
+      requestAll.onsuccess = () => {
+        const livres = requestAll.result;
+        if (livres.length === 0) {
+          listeLivres.innerHTML = "<li>Aucun livre.</li>";
+          return;
+        }
+
+        livres.forEach((livre) => {
+          const li = document.createElement("li");
+          li.className = "book-item";
+
+          const titreAffiche = livre.titreLisible || livre.name.replace(/_/g, " ");
+
+          const titleSpan = document.createElement("span");
+          titleSpan.textContent = titreAffiche;
+          titleSpan.style.fontWeight = "bold";
+
+          const openBtn = document.createElement("button");
+          openBtn.textContent = `Ouvrir ${titreAffiche}`;
+          openBtn.onclick = () => {
+            changerOngletPrincipal("lecture");
+            chargerLivre(livre.arrayBuffer, livre.name);
+          };
+
+          const deleteBtn = document.createElement("button");
+          deleteBtn.className = "delete-btn";
+          deleteBtn.textContent = `Supprimer ${titreAffiche}`;
+          deleteBtn.onclick = () => supprimerLivre(livre.name, titreAffiche);
+
+          li.appendChild(titleSpan);
+          li.appendChild(openBtn);
+          li.appendChild(deleteBtn);
+          listeLivres.appendChild(li);
+        });
+      };
+    }
+
+    async function ajouterLivreALaBibliotheque(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      statusZone.textContent = `Lecture du fichier en cours...`;
+
+      // On lit le fichier entier en ArrayBuffer (données binaires pures) AVANT de le stocker.
+      // Un File/Blob natif est temporaire et disparaît entre les sessions ;
+      // un ArrayBuffer est sérialisé proprement par IndexedDB et persiste indéfiniment.
+      let arrayBuffer;
+      try {
+        arrayBuffer = await file.arrayBuffer();
+      } catch (err) {
+        statusZone.textContent = "Erreur de lecture du fichier.";
+        return;
+      }
+
+      statusZone.textContent = `Ajout de ${file.name}...`;
+      const transaction = db.transaction("books", "readwrite");
+
+      const nouveauLivre = {
+        name: file.name.replace(".zip", ""),
+        arrayBuffer: arrayBuffer,       // données binaires persistantes
+      };
+      const addRequest = transaction.objectStore("books").put(nouveauLivre);
+
+      addRequest.onsuccess = async () => {
+        statusZone.textContent = `Livre ajouté avec succès.`;
+        rafraichirBibliotheque();
+
+        // Bascule vers l'onglet Lecture et lance automatiquement la lecture du nouveau livre
+        changerOngletPrincipal("lecture");
+        await chargerLivre(nouveauLivre.arrayBuffer, nouveauLivre.name);
+        const premierChapitreBtn = document.querySelector(".chapter-btn");
+        if (premierChapitreBtn) {
+          premierChapitreBtn.click();
+        }
+      };
+
+      addRequest.onerror = () => {
+        statusZone.textContent = "Erreur lors de l'enregistrement du livre.";
+      };
+    }
+
+    function supprimerLivre(nom, titreAffiche) {
+      const nomPourMessage = titreAffiche || nom.replace(/_/g, " ");
+      if (confirm(`Voulez-vous supprimer ${nomPourMessage} ?`)) {
+        const transaction = db.transaction("books", "readwrite");
+        transaction.objectStore("books").delete(nom);
+        transaction.oncomplete = () => {
+          statusZone.textContent = `Livre supprimé.`;
+          audioPlayer.pause();
+          audioPlayer.removeAttribute("src");
+          rafraichirBibliotheque();
+        };
+      }
+    }
+
+    // ────────────────────────────────────────────────
+    // LECTURE SIMPLE D'UN CHAPITRE
+    // ────────────────────────────────────────────────
+    async function chargerLivre(blob, nomLivre) {
+      statusZone.textContent = `Ouverture de ${nomLivre}...`;
+      listeChapitres.innerHTML = "";
+      titreLivreEnCours.textContent = nomLivre.replace(/_/g, " ");
+      titreChapitreEnCours.textContent = "Chargement...";
+      nomLivreActuel = nomLivre;
+
+      try {
+        zipInstance = await JSZip.loadAsync(blob);
+
+        let nccFileName = Object.keys(zipInstance.files).find(name =>
+          name.toLowerCase().endsWith("ncc.html") || name.toLowerCase().endsWith(".opf")
+        );
+
+        const nccContent = await zipInstance.files[nccFileName].async("string");
+        const doc = new DOMParser().parseFromString(nccContent, "text/html");
+
+        // Extraction du titre lisible (dc:title), avec repli sur le nom de fichier nettoyé
+        const titreLisible = extraireTitreLisible(doc, nomLivre);
+        titreLivreEnCours.textContent = titreLisible;
+        statusZone.textContent = `En cours : ${titreLisible}`;
+        enregistrerTitreLisible(nomLivre, titreLisible);
+
+        const headings = doc.querySelectorAll("h1, h2, h3, h4, h5, h6");
+        chapitresLivreActuel = [];
+
+        headings.forEach((heading, index) => {
+          const lien = heading.querySelector("a");
+          if (!lien) return;
+
+          const titreTexte = lien.textContent.trim();
+          const hrefCible = lien.getAttribute("href");
+
+          chapitresLivreActuel.push({ hrefCible, titreTexte, index });
+
+          const li = document.createElement("li");
+          const btn = document.createElement("button");
+          btn.className = "chapter-btn";
+          btn.textContent = `${index + 1}. ${titreTexte}`;
+          
+          btn.onclick = () => {
+            document.querySelectorAll(".chapter-btn").forEach(b => b.classList.remove("chapitre-actif"));
+            btn.classList.add("chapitre-actif");
+            pauseDemandeeParUtilisateur = false;
+            chargerEtLireChapitreSimple(hrefCible, titreTexte, index);
+          };
+
+          li.appendChild(btn);
+          listeChapitres.appendChild(li);
+        });
+
+        statusZone.textContent = `Livre prêt. Touchez un chapitre.`;
+        rafraichirNotes();
+      } catch (err) {
+        statusZone.textContent = "Erreur de chargement.";
+      }
+    }
+
+    // Cherche dc:title dans le .opf (balise <dc:title>) ou ncc.html (meta name="dc:title"),
+    // sinon retombe sur le nom de fichier avec underscores remplacés par des espaces.
+    function extraireTitreLisible(doc, nomFichier) {
+      const metaTitre = doc.querySelector('meta[name="dc:title"]');
+      if (metaTitre && metaTitre.getAttribute("content")?.trim()) {
+        return metaTitre.getAttribute("content").trim();
+      }
+
+      const baliseDcTitle = doc.querySelector("dc\\:title, title");
+      if (baliseDcTitle && baliseDcTitle.textContent?.trim()) {
+        return baliseDcTitle.textContent.trim();
+      }
+
+      // Repli : nom de fichier nettoyé (underscores → espaces)
+      return nomFichier.replace(/_/g, " ").trim();
+    }
+
+    function enregistrerTitreLisible(nomFichier, titreLisible) {
+      if (!db) return;
+      const transaction = db.transaction("books", "readwrite");
+      const store = transaction.objectStore("books");
+      const req = store.get(nomFichier);
+      req.onsuccess = () => {
+        const livre = req.result;
+        if (livre) {
+          livre.titreLisible = titreLisible;
+          store.put(livre);
+        }
+      };
+    }
+
+    async function chargerEtLireChapitreSimple(hrefCible, titreTexte, index) {
+      if (!zipInstance) return;
+
+      statusZone.textContent = `Chargement de : ${titreTexte}...`;
+      titreChapitreEnCours.textContent = titreTexte;
+      indexChapitreActuel = index;
+      titreChapitreActuelTexte = titreTexte;
+
+      // 1. ARRÊT TOTAL du lecteur pour éviter les chevauchements
+      audioPlayer.pause();
+      audioPlayer.removeAttribute("src");
+
+      let nomFichierCible = hrefCible.split("#")[0];
+      let fichierAudioFinal = nomFichierCible;
+      let departAudio = 0; // Au cas où le fichier indique un point de départ précis
+
+      try {
+        // 2. Si c'est un fichier SMIL, on cherche juste le nom du MP3 principal dedans
+        if (nomFichierCible.toLowerCase().endsWith('.smil')) {
+          const smilFileKey = Object.keys(zipInstance.files).find(name =>
+            name.toLowerCase().endsWith(nomFichierCible.toLowerCase())
+          );
+
+          if (smilFileKey) {
+            const smilContent = await zipInstance.files[smilFileKey].async("string");
+            const smilDoc = new DOMParser().parseFromString(smilContent, "text/xml");
+            
+            // On prend le premier fichier audio trouvé
+            const audioTag = smilDoc.querySelector("audio");
+            if (audioTag) {
+              fichierAudioFinal = audioTag.getAttribute("src").split("#")[0];
+              
+              // On essaie de récupérer le point de départ s'il existe
+              let cb = audioTag.getAttribute("clip-begin") || audioTag.getAttribute("clipBegin");
+              if (cb) departAudio = parseFloat(cb.replace(/^npt=/, "").replace(/s$/, "")) || 0;
+            }
+          }
+        }
+
+        // 3. Trouver le MP3 dans le ZIP
+        const fichierZipAudio = Object.keys(zipInstance.files).find(name =>
+          name.toLowerCase().endsWith(fichierAudioFinal.toLowerCase())
+        );
+
+        if (!fichierZipAudio) {
+          statusZone.textContent = `Audio introuvable.`;
+          return;
+        }
+
+        // 4. Lancer la lecture directe
+        const audioBlob = await zipInstance.files[fichierZipAudio].async("blob");
+        audioPlayer.src = URL.createObjectURL(audioBlob);
+        
+        // Attendre que l'audio soit prêt pour appliquer le point de départ éventuel
+        audioPlayer.onloadedmetadata = () => {
+           audioPlayer.currentTime = departAudio;
+           audioPlayer.play();
+        };
+
+        statusZone.textContent = `Lecture : ${titreTexte}`;
+
+      } catch (err) {
+        statusZone.textContent = "Erreur audio.";
+      }
+    }
+
+    // ────────────────────────────────────────────────
+    // COMMANDES DE BASE
+    // ────────────────────────────────────────────────
+    function piloterAudio(action) {
+      if (!audioPlayer.src) return;
+
+      if (action === "play") {
+        pauseDemandeeParUtilisateur = false;
+        audioPlayer.play();
+      } else if (action === "pause") {
+        pauseDemandeeParUtilisateur = true;
+        audioPlayer.pause();
+      }
+    }
+
+    // Enchaînement automatique des chapitres : à la fin d'un chapitre, on lance le suivant
+    // sauf si l'utilisateur a explicitement appuyé sur Pause.
+    audioPlayer.addEventListener("ended", () => {
+      if (pauseDemandeeParUtilisateur) return;
+
+      const indexSuivant = indexChapitreActuel + 1;
+      const chapitreSuivant = chapitresLivreActuel[indexSuivant];
+
+      if (chapitreSuivant) {
+        document.querySelectorAll(".chapter-btn").forEach(b => b.classList.remove("chapitre-actif"));
+        const boutons = document.querySelectorAll(".chapter-btn");
+        const btnSuivant = boutons[indexSuivant];
+        if (btnSuivant) btnSuivant.classList.add("chapitre-actif");
+
+        chargerEtLireChapitreSimple(chapitreSuivant.hrefCible, chapitreSuivant.titreTexte, chapitreSuivant.index);
+      } else {
+        statusZone.textContent = "Fin du livre.";
+      }
+    });
+
+    // ────────────────────────────────────────────────
+    // COMMANDES VOCALES
+    // ────────────────────────────────────────────────
+    const btnParler = document.getElementById("btnParler");
+    const zoneRetourVocal = document.getElementById("zoneRetourVocal");
+    let reconnaissanceEnCours = false;
+    let modeNoteDictee = false; // true quand on attend que l'utilisateur dicte sa note
+
+    // ── Synthèse vocale ──────────────────────────────
+    function dire(texte) {
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(texte);
+      utterance.lang = "fr-FR";
+      utterance.rate = 1.1;
+      window.speechSynthesis.speak(utterance);
+      afficherRetourVocal(texte);
+    }
+
+    function afficherRetourVocal(texte) {
+      zoneRetourVocal.textContent = texte;
+      zoneRetourVocal.classList.add("visible");
+      clearTimeout(zoneRetourVocal._timer);
+      zoneRetourVocal._timer = setTimeout(() => {
+        zoneRetourVocal.classList.remove("visible");
+      }, 5000);
+    }
+
+    // ── Reconnaissance vocale ────────────────────────
+    function activerEcouteVocale() {
+      if (!("webkitSpeechRecognition" in window) && !("SpeechRecognition" in window)) {
+        dire("La reconnaissance vocale n'est pas disponible sur ce navigateur.");
+        return;
+      }
+      if (reconnaissanceEnCours) return;
+
+      const Reconnaissance = window.SpeechRecognition || window.webkitSpeechRecognition;
+      const rec = new Reconnaissance();
+      rec.lang = "fr-FR";
+      rec.interimResults = false;
+      rec.maxAlternatives = 3;
+
+      reconnaissanceEnCours = true;
+      btnParler.classList.add("ecoute-active");
+      btnParler.textContent = "Écoute...";
+      afficherRetourVocal("Je vous écoute...");
+
+      rec.onresult = (event) => {
+        const transcription = event.results[0][0].transcript.toLowerCase().trim();
+        afficherRetourVocal(`Compris : "${transcription}"`);
+        traiterCommande(transcription);
+      };
+
+      rec.onerror = (event) => {
+        dire("Je n'ai pas compris. Réessayez.");
+      };
+
+      rec.onend = () => {
+        reconnaissanceEnCours = false;
+        btnParler.classList.remove("ecoute-active");
+        btnParler.textContent = "Parler";
+      };
+
+      rec.start();
+    }
+
+    // ── Interpréteur de commandes ─────────────────────
+    function traiterCommande(texte) {
+
+      // MODE NOTE : si on attendait la dictée d'une note
+      if (modeNoteDictee) {
+        modeNoteDictee = false;
+        enregistrerNote(texte);
+        return;
+      }
+
+      // LISTER LES LIVRES
+      if (/livres?|biblioth[eè]que|liste/.test(texte)) {
+        listerLivresVocalement();
+        return;
+      }
+
+      // PAUSE
+      if (/pause|stop|arr[eê]te|arr[eê]ter/.test(texte)) {
+        piloterAudio("pause");
+        dire("Pause.");
+        return;
+      }
+
+      // REPRENDRE / LIRE
+      if (/repren|continu|lis|lire|lecture|joue|jouer|play/.test(texte) &&
+          !/ouvre|ouvrir|nouveau/.test(texte)) {
+        piloterAudio("play");
+        dire("Lecture en cours.");
+        return;
+      }
+
+      // CHAPITRE SUIVANT
+      if (/suivant|prochain|apr[eè]s|next/.test(texte)) {
+        allerAuChapitre(indexChapitreActuel + 1);
+        return;
+      }
+
+      // CHAPITRE PRÉCÉDENT
+      if (/pr[eé]c[eé]dent|avant|retour|back/.test(texte)) {
+        allerAuChapitre(indexChapitreActuel - 1);
+        return;
+      }
+
+      // DICTER UNE NOTE
+      if (/note|m[eé]mo|m[eé]morise|[eé]cris|dictée|dicter/.test(texte)) {
+        if (!nomLivreActuel) {
+          dire("Aucun livre ouvert. Ouvrez d'abord un livre.");
+          return;
+        }
+        modeNoteDictee = true;
+        dire("Dictez votre note. J'écoute.");
+        // On relance immédiatement l'écoute pour capter la note
+        setTimeout(() => activerEcouteVocale(), 800);
+        return;
+      }
+
+      // OUVRIR UN LIVRE (commande avec nom)
+      if (/ouvre|ouvrir|lis|lire|lance|joue/.test(texte)) {
+        ouvrirLivreParVoix(texte);
+        return;
+      }
+
+      // FERMER
+      if (/ferm|quitte|exit/.test(texte)) {
+        dire("Fermeture. Bonne journée.");
+        setTimeout(() => fermerApplication(), 1500);
+        return;
+      }
+
+      // Commande non reconnue
+      dire("Commande non reconnue. Dites par exemple : liste des livres, pause, suivant, ou dicter une note.");
+    }
+
+    // ── Lister les livres vocalement ─────────────────
+    function listerLivresVocalement() {
+      const transaction = db.transaction("books", "readonly");
+      const req = transaction.objectStore("books").getAll();
+      req.onsuccess = () => {
+        const livres = req.result;
+        if (livres.length === 0) {
+          dire("Votre bibliothèque est vide. Ajoutez un livre depuis l'onglet Nouveau livre.");
+          return;
+        }
+        const titres = livres.map((l, i) =>
+          `${i + 1} : ${l.titreLisible || l.name.replace(/_/g, " ")}`
+        ).join(". ");
+        dire(`Vous avez ${livres.length} livre${livres.length > 1 ? "s" : ""} : ${titres}.`);
+      };
+    }
+
+    // ── Ouvrir un livre par reconnaissance du titre ──
+    function ouvrirLivreParVoix(texte) {
+      const transaction = db.transaction("books", "readonly");
+      const req = transaction.objectStore("books").getAll();
+      req.onsuccess = () => {
+        const livres = req.result;
+        if (livres.length === 0) {
+          dire("Votre bibliothèque est vide.");
+          return;
+        }
+
+        // On cherche le livre dont le titre correspond le mieux (correspondance partielle)
+        let meilleurLivre = null;
+        let meilleureScore = 0;
+
+        livres.forEach((livre) => {
+          const titreLivre = (livre.titreLisible || livre.name.replace(/_/g, " ")).toLowerCase();
+          // Score = nombre de mots du titre reconnus dans la commande vocale
+          const motsTitre = titreLivre.split(/\s+/).filter(m => m.length > 2);
+          const score = motsTitre.filter(mot => texte.includes(mot)).length;
+          if (score > meilleureScore) {
+            meilleureScore = score;
+            meilleurLivre = livre;
+          }
+        });
+
+        if (meilleurLivre && meilleureScore > 0) {
+          const titreAffiche = meilleurLivre.titreLisible || meilleurLivre.name.replace(/_/g, " ");
+          dire(`Ouverture de ${titreAffiche}.`);
+          changerOngletPrincipal("lecture");
+          chargerLivre(meilleurLivre.arrayBuffer, meilleurLivre.name).then(() => {
+            const premierBtn = document.querySelector(".chapter-btn");
+            if (premierBtn) premierBtn.click();
+          });
+        } else if (livres.length === 1) {
+          // S'il n'y a qu'un livre, on l'ouvre directement
+          const titreAffiche = livres[0].titreLisible || livres[0].name.replace(/_/g, " ");
+          dire(`Ouverture de ${titreAffiche}.`);
+          changerOngletPrincipal("lecture");
+          chargerLivre(livres[0].arrayBuffer, livres[0].name).then(() => {
+            const premierBtn = document.querySelector(".chapter-btn");
+            if (premierBtn) premierBtn.click();
+          });
+        } else {
+          dire("Je n'ai pas trouvé ce livre. Dites : liste des livres, pour entendre les titres disponibles.");
+        }
+      };
+    }
+
+    // ── Navigation entre chapitres par voix ──────────
+    function allerAuChapitre(index) {
+      if (chapitresLivreActuel.length === 0) {
+        dire("Aucun livre ouvert.");
+        return;
+      }
+      if (index < 0) {
+        dire("Vous êtes déjà au premier chapitre.");
+        return;
+      }
+      if (index >= chapitresLivreActuel.length) {
+        dire("Vous êtes déjà au dernier chapitre.");
+        return;
+      }
+      const chapitre = chapitresLivreActuel[index];
+      document.querySelectorAll(".chapter-btn").forEach(b => b.classList.remove("chapitre-actif"));
+      const boutons = document.querySelectorAll(".chapter-btn");
+      if (boutons[index]) boutons[index].classList.add("chapitre-actif");
+      pauseDemandeeParUtilisateur = false;
+      chargerEtLireChapitreSimple(chapitre.hrefCible, chapitre.titreTexte, chapitre.index);
+      dire(`Chapitre ${chapitre.titreTexte}.`);
+    }
+
+    // ── Notes vocales ─────────────────────────────────
+    function enregistrerNote(texte) {
+      if (!nomLivreActuel) {
+        dire("Impossible d'enregistrer la note : aucun livre ouvert.");
+        return;
+      }
+      const note = {
+        noteId: "note_" + Date.now(),
+        nomLivre: nomLivreActuel,
+        titreChapitre: titreChapitreActuelTexte,
+        tempsDansChapitre: audioPlayer.currentTime || 0,
+        contenu: texte,
+        date: new Date().toLocaleDateString("fr-FR"),
+      };
+      const transaction = db.transaction("notes", "readwrite");
+      transaction.objectStore("notes").put(note);
+      transaction.oncomplete = () => {
+        dire(`Note enregistrée : ${texte}`);
+        rafraichirNotes();
+      };
+    }
+
+    function rafraichirNotes() {
+      const listeNotes = document.getElementById("listeNotes");
+      if (!listeNotes) return;
+      listeNotes.innerHTML = "";
+      if (!nomLivreActuel || !db) return;
+
+      const transaction = db.transaction("notes", "readonly");
+      const req = transaction.objectStore("notes").index("nomLivre").getAll(nomLivreActuel);
+      req.onsuccess = () => {
+        const notes = req.result;
+        if (notes.length === 0) {
+          listeNotes.innerHTML = "<li style='color:#AAAAAA;'>Aucune note pour ce livre.</li>";
+          return;
+        }
+        notes.forEach((note) => {
+          const li = document.createElement("li");
+          li.className = "note-item";
+          li.innerHTML = `
+            <strong>${note.date} — ${note.titreChapitre || "chapitre inconnu"}</strong><br>
+            ${note.contenu}
+          `;
+          const delBtn = document.createElement("button");
+          delBtn.className = "delete-btn";
+          delBtn.style.marginTop = "8px";
+          delBtn.textContent = "Supprimer cette note";
+          delBtn.onclick = () => {
+            db.transaction("notes", "readwrite").objectStore("notes").delete(note.noteId)
+              .transaction.oncomplete = rafraichirNotes;
+          };
+          li.appendChild(delBtn);
+          listeNotes.appendChild(li);
+        });
+      };
+    }
+
+    // ────────────────────────────────────────────────
+    // ONGLETS PRINCIPAUX (Lecture / Bibliothèque / Nouveau livre)
+    // ────────────────────────────────────────────────
+    function changerOngletPrincipal(nom) {
+      const onglets = {
+        lecture: { btn: document.getElementById("mainOngletLecture"), panneau: document.getElementById("mainPanneauLecture") },
+        biblio: { btn: document.getElementById("mainOngletBiblio"), panneau: document.getElementById("mainPanneauBiblio") },
+        nouveau: { btn: document.getElementById("mainOngletNouveau"), panneau: document.getElementById("mainPanneauNouveau") },
+      };
+
+      Object.keys(onglets).forEach((cle) => {
+        const actif = cle === nom;
+        onglets[cle].btn.classList.toggle("tab-active", actif);
+        onglets[cle].btn.setAttribute("aria-selected", actif);
+        onglets[cle].panneau.classList.toggle("active", actif);
+      });
+    }
+  </script>
+</body>
+</html>
